@@ -1,14 +1,17 @@
 # vim: expandtab
 # -*- coding: utf-8 -*-
-import re
+import functools
+import mock
+from urlparse import urlparse
 
 from django.template import Context, Template
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.conf.urls import patterns, url, include
 from django.conf.urls.i18n import i18n_patterns
 from django.contrib.auth.models import User
 from django.utils import timezone
 from django.test import TestCase
+from django.views.defaults import page_not_found
 
 from poleno.utils.date import utc_datetime_from_local, local_datetime_from_local
 from poleno.utils.misc import Bunch
@@ -253,3 +256,9 @@ class TemplatetagsViewTest(TestCase):
             self.assertEqual(r1.content, u'(/en/language/)(/de/language/)(/fr/language/)')
             self.assertEqual(r2.content, u'(/en/language/)(/de/language/)(/fr/language/)')
             self.assertEqual(r3.content, u'(/en/language/)(/de/language/)(/fr/language/)')
+
+        patched = functools.partial(page_not_found, template_name=u'404x.html')
+        with mock.patch(u'django.views.defaults.page_not_found', patched):
+            r4 = self.client.get(u'/language/')
+            self.assertIsInstance(r4, HttpResponseRedirect)
+            self.assertEqual(urlparse(r4.url).path, u'/en/language/')
