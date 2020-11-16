@@ -1,17 +1,16 @@
 # vim: expandtab
 # -*- coding: utf-8 -*-
-import functools
-import mock
 from urlparse import urlparse
 
-from django.template import Context, Template
+from django import http
+from django.template import Context, Template, RequestContext
 from django.http import HttpResponse, HttpResponseRedirect
 from django.conf.urls import patterns, url, include
 from django.conf.urls.i18n import i18n_patterns
 from django.contrib.auth.models import User
 from django.utils import timezone
 from django.test import TestCase
-from django.views.defaults import page_not_found
+from django.utils.functional import cached_property
 
 from poleno.utils.date import utc_datetime_from_local, local_datetime_from_local
 from poleno.utils.misc import Bunch
@@ -202,7 +201,7 @@ class TemplatetagsViewTest(TestCase):
             u'request': request,
         })))
 
-    urls = tuple(patterns(u'',
+    urlpatterns = tuple(patterns(u'',
         url(r'^$', active_view, name=u'index'),
         url(r'^first/', active_view, name=u'first'),
         url(r'^second/', include(namespace=u'second', arg=patterns(u'',
@@ -210,9 +209,23 @@ class TemplatetagsViewTest(TestCase):
             url(r'^first/', active_view, name=u'first'),
         ))),
     ))
-    urls += tuple(i18n_patterns(u'',
+    urlpatterns += tuple(i18n_patterns(u'',
         url(r'^language/', language_view, name=u'language'),
     ))
+
+    @staticmethod
+    def page_not_found(request):
+        template = Template(
+            u'{% load change_lang from poleno.utils %}'
+            u'{% change_lang lang.0 %}'
+        )
+        body = template.render(RequestContext(request, {u'request_path': request.path}))
+        return http.HttpResponseNotFound(body, content_type=u'text/html')
+    handler404 = page_not_found
+
+    @cached_property
+    def urls(self):
+        return self
 
 
     def test_active_filter(self):
@@ -257,8 +270,11 @@ class TemplatetagsViewTest(TestCase):
             self.assertEqual(r2.content, u'(/en/language/)(/de/language/)(/fr/language/)')
             self.assertEqual(r3.content, u'(/en/language/)(/de/language/)(/fr/language/)')
 
-        patched = functools.partial(page_not_found, template_name=u'404x.html')
-        with mock.patch(u'django.views.defaults.page_not_found', patched):
-            r4 = self.client.get(u'/language/')
-            self.assertIsInstance(r4, HttpResponseRedirect)
-            self.assertEqual(urlparse(r4.url).path, u'/en/language/')
+    def test_change_lang_tag_with_missing_language_in_url(self):
+        u"""
+        Tests ``change_lang`` template tag by raising 404 exception, which is processed by custom
+        handler using a template with this tag.
+        """
+        r = self.client.get(u'/language/')
+        self.assertIs(type(r), HttpResponseRedirect)
+        self.assertEqual(urlparse(r.url).path, u'/en/language/')
